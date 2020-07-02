@@ -61,7 +61,7 @@ func (t *TaskHandler) CreateTask(rw http.ResponseWriter, r *http.Request) {
 	uuid := strings.Replace(rawUUID.String(), "-", "", -1)
 	t.workers[uuid] = make(chan int, 1)
 	t.states[uuid] = start
-	go t.task(counter, t.workers[uuid], uuid, 10)
+	go task(counter, uuid, 10, t)
 	t.workers[uuid] <- start
 	t.logger.Println("Task created. uuid:", uuid)
 	counter++
@@ -119,55 +119,6 @@ func (t *TaskHandler) closeRoutine(uuid string) {
 	delete(t.states, uuid)
 }
 
-// Task is a dummy representation task being spawned by the api. It only logs a statement after a period of 2 seconds
-func (t *TaskHandler) task(id int, ch <-chan int, uuid string, cnt int) {
-	state := pause
-	t.wg.Add(1)
-	defer t.closeRoutine(uuid)
-
-	// This for loop is just a representation of how channels can be intergrated to control long running task
-	for i := 0; i < cnt; i++ {
-
-		if len(ch) > 0 {
-			state = <-ch
-			if state == pause {
-				t.logger.Println("uuid:", uuid, "status: paused")
-				for state == pause {
-					state = <-ch
-				}
-			}
-
-			if state == kill {
-				t.logger.Println("uuid:", uuid, "status: killed")
-				t.logger.Println("rollback initiated")
-				go t.rollBack(uuid)
-				return
-			}
-
-			t.logger.Println("uuid:", uuid, "status: running")
-
-		}
-		// this is used to ensure concurrency by forcing scheduler to rechedule on another task
-		runtime.Gosched()
-
-		// Dummy task, can be replaced with actual task to be performed
-		t.logger.Println("id:", id, "value:", i)
-		time.Sleep(3 * time.Second)
-
-	}
-
-	t.logger.Println("uuid:", uuid, "status: completed")
-}
-
-func (t *TaskHandler) rollBack(uuid string) {
-	t.wg.Add(1)
-	defer t.wg.Done()
-
-	// Dummy task, can be replaced with actual rollback task to be performed
-	time.Sleep(1 * time.Second)
-	t.logger.Println("uuid:", uuid, "status: Rollback completed")
-}
-
 // KillAllTask sends a kill signal to all the running tasks
 func (t *TaskHandler) KillAllTask() {
 	for k := range t.workers {
@@ -198,4 +149,51 @@ func (t *TaskHandler) MiddlewareCheckTask(next http.Handler) http.Handler {
 		next.ServeHTTP(rw, r)
 
 	})
+}
+
+// ----- Sample task implementing pause, resume and delete functionality -----
+func task(id int, uuid string, cnt int, t *TaskHandler) {
+	t.wg.Add(1)
+	defer t.closeRoutine(uuid)
+
+	// This for loop is just a representation of how channels can be intergrated to control long running task
+	for i := 0; i < cnt; i++ {
+		if len(t.workers[uuid]) > 0 {
+			state := <-t.workers[uuid]
+			if state == pause {
+				t.logger.Println("uuid:", uuid, "status: paused")
+				for state == pause {
+					state = <-t.workers[uuid]
+				}
+			}
+
+			if state == kill {
+				t.logger.Println("uuid:", uuid, "status: killed")
+				t.logger.Println("rollback initiated")
+				go rollBack(uuid, t)
+				return
+			}
+
+			t.logger.Println("uuid:", uuid, "status: running")
+
+		}
+		// this is used to ensure concurrency by forcing scheduler to rechedule on another task
+		runtime.Gosched()
+
+		// Dummy task, can be replaced with actual task to be performed
+		t.logger.Println("id:", id, "value:", i)
+		time.Sleep(3 * time.Second)
+
+	}
+
+	t.logger.Println("uuid:", uuid, "status: completed")
+}
+
+func rollBack(uuid string, t *TaskHandler) {
+	t.wg.Add(1)
+	defer t.wg.Done()
+
+	// Dummy task, can be replaced with actual rollback task to be performed
+	time.Sleep(1 * time.Second)
+	t.logger.Println("uuid:", uuid, "status: Rollback completed")
 }

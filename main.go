@@ -35,12 +35,12 @@ func main() {
 	}
 
 	go func() {
+		logger.Println("Starting server on port 9090")
 		err := s.ListenAndServe()
 		if err != nil {
 			logger.Fatal(err)
 		}
 
-		logger.Println("Server started on port 9090")
 	}()
 
 	// listen for os interrupt and kill commands on server
@@ -52,6 +52,8 @@ func main() {
 
 	// send kill signal to all tasks so that they can rollback gracefully before server is closed
 	taskHandler.KillAllTask()
+
+	// Used such that the go program waits for all the goroutines to finish before it closes
 	wg.Wait()
 
 	logger.Println("Recieved terminate, properly terminated all tasks")
